@@ -110,7 +110,7 @@ function makeSprite(it) {
 }
 
 // Calcula la disposición completa para un tamaño de corazón (S) y de letra (fs).
-function layout(S, fs) {
+function layout(S, fs, ay) {
   ctx.font = `600 ${fs}px ${FAMILY}`;
   const wd = {};
   for (const p of PHRASES) wd[p] = ctx.measureText(p).width;
@@ -123,7 +123,7 @@ function layout(S, fs) {
     const t = i / N * Math.PI * 2 + Math.PI / 2;
     const x = 16 * Math.pow(Math.sin(t), 3);
     const y = 13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t);
-    pts.push({ x: cx + x * S, y: cy - (y + 2.5) * S });
+    pts.push({ x: cx + x * S, y: cy - (y + 2.5) * S * ay });
   }
   const cum = [0];
   for (let i = 1; i <= N; i++) {
@@ -233,12 +233,16 @@ function build() {
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   makeHearts();
 
-  // Letra según la pantalla (nunca menor a 11 px) y corazón lo más grande que quepa
-  const fs = Math.max(11, Math.min(18, Math.min(W, H) / 38));
-  const S = Math.max(4, Math.min((W * 0.97 - 6.5 * fs) / 32, (H * 0.93 - 2.5 * fs) / 29));
+  // Letra según la pantalla (nunca menor a 10 px) y corazón lo más grande que quepa.
+  // En pantallas altas (celular vertical) el corazón se estira hacia arriba y abajo
+  // para aprovechar el alto, así entran más filas de texto en el relleno.
+  const fs = Math.max(10, Math.min(18, Math.min(W, H) / 38));
+  const Sw = (W * 0.97 - 6.5 * fs) / 32, Sh = (H * 0.93 - 2.5 * fs) / 29;
+  const S = Math.max(4, Math.min(Sw, Sh));
+  const ay = Math.max(1, Math.min(1.5, Sh / S));
   fontSize = fs;
   fontStr = `600 ${fs}px ${FAMILY}`;
-  items = layout(S, fs);
+  items = layout(S, fs, ay);
 
   c1 = 0; c2 = 0;
   for (const it of items) {
@@ -302,7 +306,20 @@ function frame(now) {
 }
 
 let rt;
-addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(build, 200); });
+addEventListener('resize', () => {
+  clearTimeout(rt);
+  rt = setTimeout(() => {
+    const nw = innerWidth, nh = innerHeight;
+    if (Math.abs(nw - W) < 2 && Math.abs(nh - H) < 160) {
+      // cambio pequeño de alto (barra del navegador): solo se ajusta y se recentra
+      const dy = (nh - H) / 2;
+      H = nh;
+      cv.width = W * DPR; cv.height = H * DPR;
+      ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+      for (const it of items) it.y += dy;
+    } else build();
+  }, 200);
+});
 build();
 requestAnimationFrame(frame);
 
