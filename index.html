@@ -230,6 +230,7 @@ function build() {
   W = innerWidth; H = innerHeight;
   DPR = Math.min(devicePixelRatio || 1, 2);
   cv.width = W * DPR; cv.height = H * DPR;
+  cv.style.width = W + 'px'; cv.style.height = H + 'px';
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   makeHearts();
 
@@ -315,6 +316,7 @@ addEventListener('resize', () => {
       const dy = (nh - H) / 2;
       H = nh;
       cv.width = W * DPR; cv.height = H * DPR;
+      cv.style.width = W + 'px'; cv.style.height = H + 'px';
       ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
       for (const it of items) it.y += dy;
     } else build();
