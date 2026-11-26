@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Te amo</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  canvas { display: block; }
+  #mbtn {
+    position: fixed; right: 16px; bottom: 16px; width: 44px; height: 44px;
+    border-radius: 50%; border: 1px solid #ff4da6; background: rgba(0,0,0,.55);
+    color: #ff8cc8; font-size: 20px; line-height: 1; cursor: pointer; opacity: .55;
+    box-shadow: 0 0 8px #a020f0, inset 0 0 8px rgba(160,32,240,.5);
+    transition: opacity .2s, box-shadow .2s;
+  }
+  #mbtn.on { opacity: 1; box-shadow: 0 0 14px #ff2d95, 0 0 22px #a020f0, inset 0 0 10px rgba(160,32,240,.7); }
+  #mbtn:focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<button id="mbtn" aria-label="Música de fondo" title="Música">♪</button>
+<input type="file" id="mfile" accept="audio/*" hidden>
+<!-- Pon tu canción en la misma carpeta con el nombre musica.mp3 (o cambia el src) -->
+<audio id="bg" src="musica.mp3" loop autoplay preload="auto"></audio>
+<script>
+// Agrega o quita frases aquí. Una por idioma.
+const PHRASES = [
+  "Te amo", "I love you", "Je t'aime", "Ti amo", "Eu te amo", "Ich liebe dich",
+  "Ik hou van je", "T'estimo", "Quérote", "Maite zaitut", "Te iubesc", "Kocham cię",
+  "Miluji tě", "Ľúbim ťa", "Volim te", "Обичам те", "Я тебя люблю", "Я тебе кохаю",
+  "Волим те", "Szeretlek", "Minä rakastan sinua", "Ma armastan sind", "Es tevi mīlu",
+  "Aš tave myliu", "Jeg elsker deg", "Jeg elsker dig", "Jag älskar dig", "Ég elska þig",
+  "Σ'αγαπώ", "Të dua", "Seni seviyorum", "Mi amas vin", "Tá grá agam duit",
+  "Dw i'n dy garu di", "Inħobbok", "Ek is lief vir jou", "Ngiyakuthanda", "Nakupenda",
+  "Munakuyki", "Rohayhu", "Aloha au iā ʻoe", "Mahal kita", "Aku cinta kamu",
+  "Anh yêu em", "ฉันรักเธอ", "愛してる", "我爱你", "사랑해", "আমি তোমাকে ভালোবাসি",
+  "मैं तुमसे प्यार करता हूँ", "நான் உன்னை காதலிக்கிறேன்", "მიყვარხარ", "Ես քեզ սիրում եմ",
+  "أحبك", "دوستت دارم", "אני אוהב אותך", "مجھے تم سے محبت ہے"
+];
+
+// Tonos neón: texto rosa con halo morado, y texto morado con halo rosa
+const TONES = [
+  { core: '#ff9bd0', hot: '#ffe3f2', g1: '#a020f0', g2: '#ff2d95' },
+  { core: '#d8a2ff', hot: '#f3e0ff', g1: '#ff2d95', g2: '#9b30ff' }
+];
+
+const FAMILY = "'Segoe UI','Noto Sans','Helvetica Neue',Arial,sans-serif";
+const RTL = /[\u0590-\u08FF]/;
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+
+let W, H, DPR, items = [], hearts = [], fontSize = 12, fontStr = '';
+let c1 = 0, c2 = 0, shown = 0, t0 = 0, last = 0;
+
+const rand = (a, b) => a + Math.random() * (b - a);
+const pick = a => a[(Math.random() * a.length) | 0];
+function shuffle(a) {
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = (Math.random() * (i + 1)) | 0;
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function heartPath(c, x, y, s) {
+  c.beginPath();
+  c.moveTo(x, y + s * 0.5);
+  c.bezierCurveTo(x - s * 1.1, y - s * 0.1, x - s * 0.5, y - s * 0.8, x, y - s * 0.3);
+  c.bezierCurveTo(x + s * 0.5, y - s * 0.8, x + s * 1.1, y - s * 0.1, x, y + s * 0.5);
+  c.closePath();
+}
+
+function makeHearts() {
+  const n = Math.max(25, Math.min(70, Math.round(W * H / 22000)));
+  hearts = Array.from({ length: n }, () => {
+    const s = rand(4, 11), tone = pick(TONES), size = Math.ceil(s * 3.4);
+    const c = document.createElement('canvas');
+    c.width = c.height = Math.ceil(size * DPR);
+    const g = c.getContext('2d');
+    g.scale(DPR, DPR);
+    g.shadowColor = tone.g1; g.shadowBlur = 9;
+    g.fillStyle = tone.core;
+    heartPath(g, size / 2, size / 2, s);
+    g.fill();
+    return { x: rand(0, W), y: rand(0, H), size, spr: c, a: rand(0, 6.28), v: rand(0.15, 0.6),
+             al: rand(0.35, 0.9), ph: rand(0, 6.28) };
+  });
+}
+
+// Texto ya terminado: se dibuja una vez con su brillo y luego solo se copia
+function makeSprite(it) {
+  const pad = 14, h = Math.ceil(fontSize * 1.5);
+  const c = document.createElement('canvas');
+  c.width = Math.ceil((it.w + pad * 2) * DPR);
+  c.height = Math.ceil((h + pad * 2) * DPR);
+  const g = c.getContext('2d');
+  g.scale(DPR, DPR);
+  g.font = fontStr; g.textBaseline = 'middle'; g.textAlign = 'left';
+  const x = pad, y = pad + h / 2;
+  g.fillStyle = it.tone.core;
+  g.shadowColor = it.tone.g1; g.shadowBlur = it.outline ? 16 : 12;
+  g.fillText(it.p, x, y);
+  g.shadowColor = it.tone.g2; g.shadowBlur = 5;
+  g.fillText(it.p, x, y);
+  g.shadowBlur = 0; g.fillStyle = it.tone.hot; g.globalAlpha = 0.75;
+  g.fillText(it.p, x, y);
+  it.spr = c; it.pad = pad; it.sh = h + pad * 2;
+}
+
+// Calcula la disposición completa para un tamaño de corazón (S) y de letra (fs).
+function layout(S, fs) {
+  ctx.font = `600 ${fs}px ${FAMILY}`;
+  const wd = {};
+  for (const p of PHRASES) wd[p] = ctx.measureText(p).width;
+  const HEART = '♥', hw = ctx.measureText(HEART).width;
+  const cx = W / 2, cy = H / 2, hh = fs * 1.25, gx = fs * 0.8, gy = fs * 0.15;
+
+  // Curva del corazón, empezando en el punto más a la derecha (lado liso)
+  const N = 600, pts = [];
+  for (let i = 0; i < N; i++) {
+    const t = i / N * Math.PI * 2 + Math.PI / 2;
+    const x = 16 * Math.pow(Math.sin(t), 3);
+    const y = 13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t);
+    pts.push({ x: cx + x * S, y: cy - (y + 2.5) * S });
+  }
+  const cum = [0];
+  for (let i = 1; i <= N; i++) {
+    const p = pts[i % N], q = pts[i - 1];
+    cum.push(cum[i - 1] + Math.hypot(p.x - q.x, p.y - q.y));
+  }
+  const RL = cum[N];
+  const atR = dd => {
+    dd = Math.max(0, Math.min(RL - 0.001, dd));
+    let lo = 0, hi = N;
+    while (hi - lo > 1) { const m = (lo + hi) >> 1; if (cum[m] <= dd) lo = m; else hi = m; }
+    const p = pts[lo], q = pts[(lo + 1) % N];
+    const f = (dd - cum[lo]) / (cum[lo + 1] - cum[lo] || 1);
+    return { x: p.x + (q.x - p.x) * f, y: p.y + (q.y - p.y) * f };
+  };
+  // Contorno: una sola capa de frases cortas y rectas. Cada una se pone en el primer punto
+  // de la curva donde ya no toca a las anteriores, así queda pegado y sin pisarse.
+  const cand = PHRASES.filter(p => wd[p] <= fs * 6.5);
+  let deck = [];
+  const draw1 = () => { if (!deck.length) deck = shuffle(cand.slice()); return deck.pop(); };
+  const ring = []; let d = 0, tries = 0, prevP = '';
+  const isFree = (m, w) => ring.every(o =>
+    Math.abs(m.x - o.x) >= (w + o.w) / 2 + gx || Math.abs(m.y - o.y) >= hh + gy);
+  while (tries <= cand.length * 2) {
+    const p = draw1();
+    if (p === prevP) { tries++; continue; }
+    const w = wd[p];
+    let nd = ring.length ? d + 1 : 0, m = atR(nd);
+    while (nd < RL - 1 && !isFree(m, w)) { nd += 1.5; m = atR(nd); }
+    if (nd >= RL - 1) { tries++; continue; }
+    ring.push({ p, w, x: m.x, y: m.y, outline: true, tone: TONES[ring.length % 2] });
+    d = nd; prevP = p; tries = 0;
+  }
+
+  // Relleno: filas dentro del corazón, esquivando el contorno y sin dejar huecos
+  const top = Math.min(...pts.map(p => p.y)), bot = Math.max(...pts.map(p => p.y));
+  const lh = fs * 1.5;
+  const segs = [];
+  for (let yy = top + fs * 1.45; yy < bot - fs * 0.3; yy += lh) {
+    const xs = [];
+    for (let i = 0; i < N; i++) {
+      const p = pts[i], q = pts[(i + 1) % N];
+      if ((p.y <= yy) !== (q.y <= yy)) xs.push(p.x + (yy - p.y) / (q.y - p.y) * (q.x - p.x));
+    }
+    xs.sort((u, v) => u - v);
+    for (let j = 0; j + 1 < xs.length; j += 2) {
+      let free = [[xs[j], xs[j + 1]]];
+      for (const o of ring) {
+        if (Math.abs(o.y - yy) >= hh + 2) continue;
+        const rl = o.x - o.w / 2 - gx * 0.6, rr = o.x + o.w / 2 + gx * 0.6;
+        free = free.flatMap(([u, v]) => (rr <= u || rl >= v) ? [[u, v]] : [[u, rl], [rr, v]])
+                   .filter(([u, v]) => v > u);
+      }
+      for (const [u, v] of free) if (v - u >= hw) segs.push({ y: yy, x1: u, x2: v });
+    }
+  }
+  const packRow = width => {
+    let best = null, bestSlack = Infinity;
+    for (let a = 0; a < 40; a++) {
+      const row = []; let sum = 0, fails = 0, lastP = '';
+      while (fails < 12) {
+        const p = pick(PHRASES), w = wd[p];
+        if (p !== lastP && sum + w + row.length * gx <= width) { row.push({ p, w }); sum += w; lastP = p; }
+        else fails++;
+      }
+      const slack = width - (sum + Math.max(0, row.length - 1) * gx);
+      if (slack < bestSlack) { bestSlack = slack; best = { row, sum }; }
+    }
+    // Si sobra un hueco, se tapa con corazoncitos
+    let slack = bestSlack;
+    while (slack >= hw + gx) {
+      best.row.push({ p: HEART, w: hw });
+      best.sum += hw; slack -= hw + gx;
+    }
+    return best;
+  };
+  const fill = [];
+  for (const sg of segs) {
+    const width = sg.x2 - sg.x1;
+    const { row, sum } = packRow(width);
+    if (!row.length) continue;
+    shuffle(row);
+    const g = row.length > 1 ? Math.min((width - sum) / (row.length - 1), gx * 2.5) : 0;
+    let x = sg.x1 + (width - (sum + g * (row.length - 1))) / 2;
+    for (const r of row) {
+      fill.push({ p: r.p, w: r.w, x: x + r.w / 2, y: sg.y, outline: false, tone: pick(TONES), al: rand(0.7, 1) });
+      x += r.w + g;
+    }
+  }
+  fill.sort((u, v) => (u.y - v.y) || (u.x - v.x));
+
+  // Centrar todo el conjunto en la pantalla
+  const all = ring.concat(fill);
+  if (all.length) {
+    const x0 = Math.min(...all.map(o => o.x - o.w / 2)), x1 = Math.max(...all.map(o => o.x + o.w / 2));
+    const y0 = Math.min(...all.map(o => o.y - hh / 2)), y1 = Math.max(...all.map(o => o.y + hh / 2));
+    const dx = W / 2 - (x0 + x1) / 2, dy = H / 2 - (y0 + y1) / 2;
+    for (const o of all) { o.x += dx; o.y += dy; }
+  }
+  return all;
+}
+
+function build() {
+  W = innerWidth; H = innerHeight;
+  DPR = Math.min(devicePixelRatio || 1, 2);
+  cv.width = W * DPR; cv.height = H * DPR;
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  makeHearts();
+
+  // Letra según la pantalla (nunca menor a 11 px) y corazón lo más grande que quepa
+  const fs = Math.max(11, Math.min(18, Math.min(W, H) / 38));
+  const S = Math.max(4, Math.min((W * 0.97 - 6.5 * fs) / 32, (H * 0.93 - 2.5 * fs) / 29));
+  fontSize = fs;
+  fontStr = `600 ${fs}px ${FAMILY}`;
+  items = layout(S, fs);
+
+  c1 = 0; c2 = 0;
+  for (const it of items) {
+    it.chars = Array.from(it.p);
+    it.len = RTL.test(it.p) ? 1 : it.chars.length;
+    it.n = -1; it.s = ''; it.spr = null;
+    if (it.outline) c1 += it.len; else c2 += it.len;
+  }
+  shown = 0; t0 = 0;
+}
+
+function frame(now) {
+  if (!t0) { t0 = now; last = now; }
+  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  const total = c1 + c2;
+
+  if (now - t0 > 1200 && shown < total) {
+    const rate = shown < c1 ? c1 / 8 : c2 / 9;
+    shown = Math.min(total, shown + rate * dt);
+  }
+  const done = shown >= total;
+
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, W, H);
+
+  // Corazones flotantes
+  for (const h of hearts) {
+    h.a += (Math.random() - 0.5) * 0.1;
+    h.x += Math.cos(h.a) * h.v; h.y += Math.sin(h.a) * h.v;
+    if (h.x < -30) h.x = W + 30; else if (h.x > W + 30) h.x = -30;
+    if (h.y < -30) h.y = H + 30; else if (h.y > H + 30) h.y = -30;
+    ctx.globalAlpha = h.al * (0.7 + 0.3 * Math.sin(now / 700 + h.ph));
+    ctx.drawImage(h.spr, h.x - h.size / 2, h.y - h.size / 2, h.size, h.size);
+  }
+
+  // Texto neón (siempre recto)
+  ctx.font = fontStr;
+  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'left';
+  const pulse = done ? 0.88 + 0.12 * Math.sin(now / 450) : 1;
+  let rem = Math.floor(shown);
+  for (let i = 0; i < items.length && rem > 0; i++) {
+    const it = items[i];
+    const n = Math.min(it.len, rem);
+    rem -= n;
+    ctx.globalAlpha = (it.outline ? 1 : it.al) * pulse;
+    if (n >= it.len) {
+      if (!it.spr) makeSprite(it);
+      ctx.drawImage(it.spr, it.x - it.w / 2 - it.pad, it.y - it.sh / 2, it.w + it.pad * 2, it.sh);
+    } else {
+      if (it.n !== n) { it.n = n; it.s = it.chars.slice(0, n).join(''); }
+      ctx.fillStyle = '#fff';
+      ctx.shadowColor = it.tone.g1; ctx.shadowBlur = 14;
+      ctx.fillText(it.s, it.x - it.w / 2, it.y);
+      ctx.shadowBlur = 0;
+    }
+  }
+  ctx.globalAlpha = 1;
+  requestAnimationFrame(frame);
+}
+
+let rt;
+addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(build, 200); });
+build();
+requestAnimationFrame(frame);
+
+// ---- Música de fondo ----
+const audio = document.getElementById('bg');
+const btn = document.getElementById('mbtn');
+const fileIn = document.getElementById('mfile');
+let audioFailed = false, userPaused = false;
+
+const sync = () => btn.classList.toggle('on', !audio.paused && !audio.muted);
+
+// 1) intenta con sonido; 2) si el navegador no deja, arranca en silencio
+async function start() {
+  try { audio.muted = false; await audio.play(); }
+  catch (e) {
+    try { audio.muted = true; await audio.play(); } catch (e2) {}
+  }
+  sync();
+}
+// Primer toque, clic o tecla: se activa el sonido
+function unlock(e) {
+  if (e && e.target === btn) return;
+  if (userPaused || audioFailed) return;
+  if (audio.paused) { start(); }
+  else if (audio.muted) { audio.muted = false; }
+  sync();
+}
+
+audio.addEventListener('error', () => {
+  audioFailed = true;
+  btn.title = 'No encontré musica.mp3. Toca para elegir una canción';
+});
+['play', 'pause', 'volumechange'].forEach(ev => audio.addEventListener(ev, sync));
+
+btn.addEventListener('click', () => {
+  if (audioFailed) { fileIn.click(); return; }
+  if (audio.muted) { userPaused = false; audio.muted = false; if (audio.paused) start(); }
+  else if (audio.paused) { userPaused = false; start(); }
+  else { userPaused = true; audio.pause(); }
+  sync();
+});
+fileIn.addEventListener('change', () => {
+  const f = fileIn.files[0];
+  if (!f) return;
+  audio.src = URL.createObjectURL(f);
+  audioFailed = false; userPaused = false;
+  btn.title = 'Música';
+  start();
+});
+['pointerdown', 'pointerup', 'click', 'touchend', 'keydown'].forEach(ev =>
+  addEventListener(ev, unlock, { passive: true }));
+audio.addEventListener('canplay', () => { if (audio.paused && !userPaused) start(); });
+start();
+</script>
+</body>
+</html>
